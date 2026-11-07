@@ -1,2 +1,0 @@
-[console_scripts]
-april = april_os.cli.main:main

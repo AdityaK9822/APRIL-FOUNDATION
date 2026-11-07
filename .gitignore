@@ -36,4 +36,17 @@ runs/
 # Build and editor artifacts.
 build/
 *.egg-info/
+web/node_modules/
+web/dist/
 .vscode/
+
+ZCode/
+harness2/
+
+# Runtime data: the memory DB is state, never repo content.
+data/*.db*
+
+# Local agent tooling (installed skills + lockfile), not repo content.
+.agents/
+skills-lock.json
+
