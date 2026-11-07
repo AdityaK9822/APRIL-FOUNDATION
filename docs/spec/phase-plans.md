@@ -1,8 +1,7 @@
-# APRIL — Standing Phase Plans (P0–P7)
+# APRIL — Standing Phase Plans (P0–P5)
 
 **Provenance:** rendered 2026-10-31 from the master implementation plan (Appendix D of
-`~/.opencode/plan`); extended in place through P7-9 (2026-11-04 → 2026-11-07) as each
-phase landed. Live per-item status is tracked in the OpenCode session instruction
+`~/.opencode/plan`). Live per-item status is tracked in the OpenCode session instruction
 entries (`todo.april-master-plan`); this document is the repo-side standing reference —
 it records what each phase changes, how it is verified, and what gates it.
 

@@ -53,7 +53,7 @@ A change that ships without updating this file is not finished.
 
 - **`CLAUDE.md` (root)** — the single source of truth for the idea, scope, and
   roadmap.
-- **`docs/spec/phase-plans.md`** — the standing, detailed plan for phases P0–P7
+- **`docs/spec/phase-plans.md`** — the standing, detailed plan for phases P0–P5
   (execution items, acceptance gates, risks). Live item status is tracked beside
   it; this doc is the reference, not the checkbox.
 - **`docs/github_instructions/create_issues.md`** — operational runbook.

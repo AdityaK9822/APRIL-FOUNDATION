@@ -199,35 +199,29 @@ there is no telemetry.
 
 ## Status
 
-**In development. Core systems are running.**
+**In development. Core systems being built.**
 
-The recursive Harness² engine (`core/harness/`) is complete through its P0–P7
-programme: offline dry rollouts, ledger-checked recursion, selection, an OCEAN
-persona kernel with facet grain, and the ADE (deploy → boot → guard) on both the
-APRIL and zcode substrates. A FastAPI/SSE backend and a React web frontend are
-live; the Textual TUI remains available but is parked (not a current priority).
+The harness is in place — a module-based structure with async agent runtime,
+database, and tooling. The Textual TUI is ready for testing with event bus,
+streaming, and IPC.
 
 ### What's Available
 
-- ✅ Harness² Engine - Recursive harness improvement; offline dry mode by default
-- ✅ ADE + Persona Runtime - Deploy/boot/guard, `APRIL_PERSONA=<id>`
-- ✅ OCEAN Kernel - Profiles as data, 30-facet grain, TS mirror
+- ✅ Textual TUI - Modern terminal interface
 - ✅ Agent Runtime - Async conversation engine
-- ✅ Event Bus + API - SSE `/api/events`, REST `/api/chat`, web frontend
+- ✅ Event Bus - Decoupled agent-UI-logger communication
 - ✅ Streaming - Token-by-token message delivery
-- ✅ Memory - SQLite, incremental extraction, dedup
-- ✅ Subagents - Pooled concurrent dispatch
-- ✅ Tools Framework - Shell tool; browser service behind `/api/browser/*`
-- ✅ Structured Logging + IPC
-- ✅ Textual TUI - Available, parked
+- ✅ IPC - Separate logger process via Unix socket/TCP
+- ✅ Memory Database - SQLite with connection pooling
+- ✅ Tools Framework - Extensible tool system
+- ✅ Structured Logging - Backend logger with IPC bridge
 
 ### Pending
 
-- ❌ MCP Runtime - Client/server integration (UI screen and benchmark task only)
 - ❌ Device Registry - Dynamic endpoint management
+- ❌ Subagents - Specialized agent instances
 - ❌ Device Discovery - Network scanning
 - ❌ Plan Execution - Task orchestration
-- ❌ Session history + API auth
 
 An earlier generation — a macOS app with voice and vision — was removed
 deliberately. It was built before the harness underneath it existed. It comes
