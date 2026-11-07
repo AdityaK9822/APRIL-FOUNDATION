@@ -4,7 +4,8 @@
 
 APRIL is an assistant with a body - it senses the world, acts on it, and works the network itself.
 
-**Current State:** TUI + CLI architecture with real-time backend logging.
+**Current State:** Harness² engine + ADE persona runtime (P0–P7 complete), with a
+web/API surface, a CLI REPL, and the Textual TUI (available, parked).
 
 ---
 
@@ -25,13 +26,26 @@ cp .env.example .env
 ### 2. Run
 
 ```bash
-# Launch TUI with backend logger
+# Web UI + API (one command; starts both services)
+python scripts/dev.py
+# then open the Vite URL it prints
+
+# or: terminal UI
 python main.py
+
+# or: plain CLI REPL
+python cli/main.py
 ```
 
 ### 3. What You'll See
 
-**TUI (Primary Interface):**
+**Web UI (`web/`):**
+- Chat view streaming from `POST /api/chat`
+- Live events from `GET /api/events` (SSE)
+- Module shell: Chat, Skills, MCP, Hooks, Terminal, Browser, Settings
+  (management screens are still placeholders)
+
+**TUI (terminal):**
 - Message list - Chat with APRIL
 - Status bar - Shows agent state
 - Stats panel - Memory and session stats
@@ -93,20 +107,30 @@ tail -f logs/april_backend.log
 
 | File | Purpose |
 |------|---------|
-| `main.py` | Entry point |
-| `core/backend_logger.py` | Backend logging |
-| `core/textual_tui.py` | UI interface |
-| `core/agent.py` | LLM integration |
-| `docs/COMPLETE-IMPLEMENTATION.md` | Full documentation |
+| `main.py` | Terminal entry point (Textual TUI) |
+| `cli/main.py` | Plain CLI REPL |
+| `scripts/dev.py` | Starts the API + web frontend together |
+| `core/api.py` | FastAPI/SSE backend over the agent runtime |
+| `core/agent.py` | Agent runtime and model integration |
+| `core/harness/` | Harness² engine (recursion, ledger, selection, library) |
+| `core/ade/` | ADE deploy/boot/guard and view contracts |
+| `core/textual_tui.py` | Terminal UI (parked) |
+| `web/` | React/Vite frontend |
+| `docs/spec/phase-plans.md` | P0–P7 standing phase plans |
+| `docs/Reports/` | Revision reports |
 
 ---
 
 ## Architecture
 
 ```
-User → TUI (Textual) ← → Backend Logger ← → Agent Runtime
-                                    ↓
-                              LLM / Tools
+Web UI (web/) ── EventSource/REST ──→ core/api.py ──→ AgentRuntime ──→ LLM / Tools
+                                              │
+TUI (Textual) ←── EventBus / IPC ─────────────┘
+                                              │
+                                     Memory / Subagents
+                                              │
+                                     Harness² engine (offline dry by default)
 ```
 
 ### Components
@@ -215,7 +239,7 @@ Extensible tool system for integrating external APIs and services.
 
 - **Documentation:** `docs/`
 - **Issues:** Open an issue on GitHub
-- **Questions:** Check `docs/COMPLETE-IMPLEMENTATION.md`
+- **Questions:** Check `docs/spec/phase-plans.md` and `docs/Reports/`
 
 ---
 
