@@ -4,10 +4,10 @@
     {
       "id": "home-assistant",
       "transport": "http",
-      "url": "http://192.168.30.10:8123/api/mcp",
-      "auth": "bearer token LAB30_TOKEN (from the workspace env, never echoed)",
+      "url": "http://192.0.2.10:8123/api/mcp",
+      "auth": "bearer token LAB_TOKEN (from the workspace env, never echoed)",
       "tools": ["switch.set", "state.get", "automation.run", "history.stream"],
-      "scope": {"allow": ["lab-30 zone devices"], "must_not": ["abroad zones", "cloud bridges"]},
+      "scope": {"allow": ["lab-segment zone devices"], "must_not": ["abroad zones", "cloud bridges"]},
       "risk_band": "medium"
     },
     {
@@ -22,7 +22,7 @@
     {
       "id": "ecg-stream",
       "transport": "stdio",
-      "command": "/opt/lab30/ecg-mcp --port lab30-acm0 --baud 115200",
+      "command": "/opt/lab/ecg-mcp --port lab-serial0 --baud 115200",
       "auth": "none (local process)",
       "tools": ["ecg.subscribe", "ecg.rPeakInterval"],
       "scope": {"allow": ["lead-off-aware realtime stream"], "must_not": ["write access", "device config"]},

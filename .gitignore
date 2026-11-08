@@ -50,3 +50,6 @@ data/*.db*
 .agents/
 skills-lock.json
 
+
+# Local agent tooling ignore file, never repo content.
+.zcodeignore
