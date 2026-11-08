@@ -34,6 +34,27 @@ def _harness_spec():
 _HARNESS_SPEC_CACHE = None
 
 
+def _request_message(row: Dict) -> Optional[Dict]:
+    """Project one stored conversation row onto the OpenAI message shape.
+
+    ``Session.add_message`` adds a ``timestamp``; provider payloads should not
+    carry it, so only the protocol fields survive here.
+    """
+    if not isinstance(row, dict):
+        return None
+    role = row.get('role')
+    if not role:
+        return None
+    message = {'role': role, 'content': row.get('content')}
+    if row.get('name'):
+        message['name'] = row['name']
+    if row.get('tool_calls'):
+        message['tool_calls'] = row['tool_calls']
+    if row.get('tool_call_id'):
+        message['tool_call_id'] = row['tool_call_id']
+    return message
+
+
 class AgentRuntime:
     @property
     def spec(self):
@@ -204,6 +225,9 @@ class AgentRuntime:
             api_key=config.api_key,
             base_url=config.api_base_url
         )
+
+        # Event bus (before memory init so _emit_error can report failures)
+        self._event_bus = get_event_bus()
         
         # Initialize memory system
         self.db = None
@@ -219,25 +243,49 @@ class AgentRuntime:
         # Create session with database
         self.session = Session(db=self.db)
         
-        # Initialize tools
+        # Initialize tools (kept as the legacy tool surface for callers that
+        # inspect `agent.tools` / `agent.tool_map`).
         if tools is None:
             self.tools = [ShellTool()]
         else:
-            self.tools = tools
-        
-        # Build tool schema list for API
-        self.tool_schemas = [t.schema() for t in self.tools]
-        
-        # Build tool name -> instance map
+            self.tools = list(tools)
+
+        # Unified feature runtime. Order is lifecycle order and dispatch
+        # priority: identity frames the request, memory supplies retrieval
+        # context, the tool registry owns schemas/dispatch, and the stubs
+        # reserve slots for skills/subagents/MCP.
+        from .feature_adapter import (
+            FeatureRuntime,
+            IdentityFeatureAdapter,
+            McpFeatureAdapter,
+            MemoryFeatureAdapter,
+            SkillsFeatureAdapter,
+            SubagentFeatureAdapter,
+            TaskContextFeatureAdapter,
+            ToolSummaryFeatureAdapter,
+            feature_for_tool,
+        )
+
+        self.features = FeatureRuntime()
+        self.features.register(IdentityFeatureAdapter())
+        self.features.register(MemoryFeatureAdapter())
+        self.features.register(ToolSummaryFeatureAdapter(self.tools))
+        for tool in self.tools:
+            self.features.register(feature_for_tool(tool))
+        self.features.register(SkillsFeatureAdapter())
+        self.features.register(SubagentFeatureAdapter())
+        self.features.register(McpFeatureAdapter())
+        self.task_context = str(getattr(config, "task_context", "") or "")
+        self.features.register(TaskContextFeatureAdapter())
+
+        # Legacy mirrors. Requests always read the live feature registry.
+        self.tool_schemas = self.features.tool_schemas(self)
         self.tool_map = {t.name: t for t in self.tools}
-        
-        # Event bus
-        self._event_bus = get_event_bus()
 
         # P5 runtime persona: APRIL_PERSONA=<id> loads the adopted (or committed)
-        # persona — c1 into the system message head, c2 into the permission
-        # layer, derive().temperature into sampling. An unknown persona fails
-        # here, before any request. Spec: docs/spec/persona-dimension.md
+        # persona — c1 into the identity feature, c2 into the permission layer,
+        # derive().temperature into sampling. An unknown persona fails here,
+        # before any request. Spec: docs/spec/persona-dimension.md
         self.persona_boot = None
         self.persona_guard = None
         from .ade import apply_to_runtime as _persona_boot_apply
@@ -266,7 +314,18 @@ class AgentRuntime:
         
         for call in tool_calls:
             tool_name = call.function.name
-            tool_args = json.loads(call.function.arguments)
+            try:
+                tool_args = json.loads(call.function.arguments or "{}")
+            except (TypeError, json.JSONDecodeError) as exc:
+                results.append({
+                    'tool_call_id': call.id,
+                    'role': 'tool',
+                    'name': tool_name,
+                    'content': f"Error: invalid tool arguments: {exc}"
+                })
+                continue
+            if not isinstance(tool_args, dict):
+                tool_args = {}
             
             # P5 permission layer: a booted persona's c2 rules decide whether a
             # shell command runs at all. A blocked command becomes the tool
@@ -283,43 +342,63 @@ class AgentRuntime:
                         'content': f'[persona-guard] {reason}'
                     })
                     continue
-            
-            if tool_name not in self.tool_map:
-                results.append({
-                    'tool_call_id': call.id,
-                    'role': 'tool',
-                    'name': tool_name,
-                    'content': f"Error: Unknown tool '{tool_name}'"
-                })
-                continue
-            
-            tool = self.tool_map[tool_name]
-            
-            try:
-                if tool_name == 'shell_execute':
-                    result = tool.execute(
-                        command=tool_args.get('command'),
-                        timeout=tool_args.get('timeout', 30)
-                    )
-                else:
-                    result = tool.execute(**tool_args)
-                
-                results.append({
-                    'tool_call_id': call.id,
-                    'role': 'tool',
-                    'name': tool_name,
-                    'content': str(result)
-                })
-            
-            except Exception as e:
-                results.append({
-                    'tool_call_id': call.id,
-                    'role': 'tool',
-                    'name': tool_name,
-                    'content': f'Error executing tool: {str(e)}'
-                })
+
+            # Features own their tools (first ownership wins). The legacy
+            # tool_map remains a fallback for callers that register directly.
+            result = self.features.dispatch(tool_name, tool_args, self)
+
+            if result is None:
+                if tool_name not in self.tool_map:
+                    results.append({
+                        'tool_call_id': call.id,
+                        'role': 'tool',
+                        'name': tool_name,
+                        'content': f"Error: Unknown tool '{tool_name}'"
+                    })
+                    continue
+
+                tool = self.tool_map[tool_name]
+
+                try:
+                    if tool_name == 'shell_execute':
+                        result = tool.execute(
+                            command=tool_args.get('command'),
+                            timeout=tool_args.get('timeout', 30)
+                        )
+                    else:
+                        result = tool.execute(**tool_args)
+                except Exception as e:
+                    result = f'Error executing tool: {str(e)}'
+
+            results.append({
+                'tool_call_id': call.id,
+                'role': 'tool',
+                'name': tool_name,
+                'content': str(result)
+            })
         
         return results
+
+    def _build_request_messages(self, user_input: str) -> List[Dict]:
+        """Build one LLM request from fresh feature state + conversation rows.
+
+        Identity and runtime context are rendered ephemerally: they are never
+        appended to ``session.context``, so every API call in a tool loop sees
+        current state and the stored history stays conversation-only.
+        """
+        identity, context = self.features.identity_and_context(self, user_input)
+
+        messages: List[Dict] = []
+        if identity:
+            messages.append({'role': 'system', 'content': identity})
+        if context:
+            messages.append({'role': 'system', 'content': context})
+
+        for row in self.session.context:
+            message = _request_message(row)
+            if message is not None:
+                messages.append(message)
+        return messages
     
     def run(self, user_input: str, max_iterations: Optional[int] = None) -> str:
         """
@@ -334,33 +413,39 @@ class AgentRuntime:
         """
         if max_iterations is None:
             max_iterations = self.config.max_iterations
-        
+
+        self._current_user_input = user_input
+
         # Log user message
         truncated = user_input[:100] + "..." if len(user_input) > 100 else user_input
         self._event_bus.emit_log(level="INFO", source="user", message=truncated)
         
-        # Augment context with relevant memories
-        self._augment_context_with_memories(user_input)
-        
         # Save user message to database
         self._save_conversation_turn('user', user_input)
         
-        # Add user message to context
+        # Add user message to conversation history. Identity, memory, and other
+        # feature context are rendered per request in _build_request_messages.
         self.session.add_message('user', user_input)
         
         # Agent loop
         iterations = 0
         while iterations < max_iterations:
+            messages = self._build_request_messages(user_input)
+            tool_schemas = self.features.tool_schemas(self)
+            self.tool_schemas = tool_schemas
+
             # Log LLM request
-            self._event_bus.emit_log(level="INFO", source="llm", message=f"Request to {self.config.model} ({len(self.session.context)} messages)")
+            self._event_bus.emit_log(level="INFO", source="llm", message=f"Request to {self.config.model} ({len(messages)} messages)")
             
             # Call LLM
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=self.session.context,
-                tools=self.tool_schemas,
-                temperature=self.config.temperature
-            )
+            request = {
+                "model": self.config.model,
+                "messages": messages,
+                "temperature": self.config.temperature,
+            }
+            if tool_schemas:
+                request["tools"] = tool_schemas
+            response = self.client.chat.completions.create(**request)
             
             message = response.choices[0].message
             
@@ -404,10 +489,11 @@ class AgentRuntime:
             self.session.add_message('assistant', message.content or '')
             final_response = message.content or ''
             
-            # Save assistant response to database and trigger extraction
+            # Save assistant response to database, then run feature post-calls
+            # (memory extraction today; subagent/MCP cleanup later).
             if final_response:
                 self._save_conversation_turn('assistant', final_response)
-                self._extract_and_store_memories()
+            self.features.post_call(self, user_input, final_response)
             
             # Log agent response
             self._event_bus.emit_log(level="INFO", source="agent", message=final_response[:100] + "..." if len(final_response) > 100 else final_response)
@@ -428,73 +514,34 @@ class AgentRuntime:
         if self.db:
             self.db.save_message(self.session.id, role, content)
     
-    def _augment_context_with_memories(self, user_input: str):
+    def _augment_context_with_memories(self, user_input: str) -> str:
         """
-        Add relevant memories to context
+        Return the memory pre-call block (legacy helper; never mutates context).
+        
+        The runtime now renders memory ephemerally in _build_request_messages.
+        Kept so external callers can still obtain the retrieval text.
         
         Args:
             user_input: User's input message
-        """
-        if not self.db:
-            return
-        
-        # Search for relevant memories
-        memories = self.session.get_relevant_memories(user_input, limit=self.config.memory_max_context)
-        
-        if memories:
-            # Format memories as context
-            memory_text = "\n\nRelevant previous knowledge from past conversations:\n"
-            for mem in memories:
-                mem_type = mem['memory_type']
-                text = mem['content'].get('text', '')
-                memory_text += f"- [{mem_type.upper()}] {text}\n"
             
-            # Add to context as system message (only if not already added)
-            if not any(m.get('role') == 'system' and 'Relevant previous knowledge' in m.get('content', '') for m in self.session.context[-5:]):
-                self.session.add_message('system', memory_text)
+        Returns:
+            Formatted memory context, or "" when memory is disabled/empty.
+        """
+        memory = self.features.get("memory")
+        if memory is None:
+            return ""
+        return memory.pre_call(self, user_input)
     
     def _extract_and_store_memories(self):
         """
-        Extract memories from conversation and store
+        Extract memories from conversation and store (legacy helper).
         
-        Runs synchronously after agent response.
-        Logs only when APRIL_LOG_LEVEL is DEBUG or lower.
+        Delegates to MemoryFeatureAdapter.post_call; the runtime calls that
+        automatically after each final assistant response.
         """
-        if not self.db or not self.extractor or not self.session.id:
-            return
-        
-        try:
-            # Get unprocessed messages for this session
-            messages = self.db.get_unprocessed_messages(self.session.id)
-            
-            if not messages:
-                return
-            
-            self._event_bus.emit_log(level="DEBUG", source="memory", message=f"Extracting memories from {len(messages)} messages")
-            
-            memories = self.extractor.extract(messages, client=self.client)
-            
-            self._event_bus.emit_log(level="DEBUG", source="memory", message=f"Extracted {len(memories)} memories")
-            
-            # Store memories
-            for memory in memories:
-                self.db.save_memory(
-                    session_id=self.session.id,
-                    memory_type=memory['type'],
-                    content=memory['content'],
-                    confidence=memory['confidence'],
-                    tags=memory['tags'],
-                    source_message_ids=[m['id'] for m in messages]
-                )
-            
-            # Mark messages as processed
-            message_ids = [m['id'] for m in messages]
-            self.db.mark_processed(message_ids)
-            
-            self._event_bus.emit_log(level="DEBUG", source="memory", message=f"Marked {len(message_ids)} messages as processed")
-            
-        except Exception as e:
-            self._emit_error("memory_extraction", str(e))
+        memory = self.features.get("memory")
+        if memory is not None:
+            memory.extract(self)
     
     def run_conversation(self, user_messages: List[str]) -> str:
         """
@@ -515,6 +562,20 @@ class AgentRuntime:
         """Clear conversation context."""
         self.session.clear()
         self._event_bus.emit_log(level="INFO", source="session", message="Context cleared")
+
+    def close(self) -> None:
+        """Release feature resources (MCP connections, subagent workers)."""
+        for feature in list(self.features):
+            close = getattr(feature, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except Exception as exc:
+                self._emit_error(
+                    "feature_close",
+                    f"{getattr(feature, 'name', feature.__class__.__name__)}: {exc}",
+                )
     
     def get_context_summary(self) -> Dict:
         """
@@ -541,23 +602,28 @@ class AgentRuntime:
         if max_iterations is None:
             max_iterations = self.config.max_iterations
 
+        self._current_user_input = user_input
+
         msg_id = self._event_bus.emit_message_start(is_assistant=True)
         self._event_bus.emit_status("thinking", {"user_input": user_input[:50]})
 
         truncated = user_input[:100] + "..." if len(user_input) > 100 else user_input
         self._event_bus.emit_log(level="INFO", source="user", message=truncated)
 
-        self._augment_context_with_memories(user_input)
         self._save_conversation_turn('user', user_input)
         self.session.add_message('user', user_input)
 
         iterations = 0
         while iterations < max_iterations:
+            messages = self._build_request_messages(user_input)
+            tool_schemas = self.features.tool_schemas(self)
+            self.tool_schemas = tool_schemas
+
             self._event_bus.emit_status("streaming" if iterations == 0 else "running_tool")
             self._event_bus.emit_log(
                 level="INFO",
                 source="llm",
-                message=f"Request to {self.config.model} ({len(self.session.context)} messages)",
+                message=f"Request to {self.config.model} ({len(messages)} messages)",
             )
 
             accumulated_content = ""
@@ -565,13 +631,15 @@ class AgentRuntime:
             finish_reason = None
 
             try:
-                stream = await self.async_client.chat.completions.create(
-                    model=self.config.model,
-                    messages=self.session.context,
-                    tools=self.tool_schemas,
-                    temperature=self.config.temperature,
-                    stream=True,
-                )
+                request = {
+                    "model": self.config.model,
+                    "messages": messages,
+                    "temperature": self.config.temperature,
+                    "stream": True,
+                }
+                if tool_schemas:
+                    request["tools"] = tool_schemas
+                stream = await self.async_client.chat.completions.create(**request)
                 async for chunk in stream:
                     if not chunk.choices:
                         continue
@@ -663,12 +731,35 @@ class AgentRuntime:
                 iterations += 1
                 continue
 
-            self.session.add_message("assistant", accumulated_content)
-            if accumulated_content:
-                self._save_conversation_turn("assistant", accumulated_content)
-                self._extract_and_store_memories()
+            # Final answer round: guard against providers that emit an empty
+            # final content (reasoning-only or tool-call style finishes). Retry
+            # ONCE without tools to force prose; never leave a blank reply.
+            final_content = accumulated_content
+            if not final_content:
+                try:
+                    retried = await self.async_client.chat.completions.create(
+                        model=self.config.model,
+                        messages=self._build_request_messages(user_input),
+                        temperature=self.config.temperature,
+                    )
+                    retry_msg = retried.choices[0].message
+                    final_content = (getattr(retry_msg, "content", "") or "").strip()
+                except Exception as exc:
+                    self._event_bus.emit_error("llm_final_retry", str(exc))
+                if final_content:
+                    yield final_content
+                    self._event_bus.emit_message_delta(final_content, is_assistant=True, is_complete=False)
+                else:
+                    final_content = "⚠️ The model returned an empty response. Please send the request again."
+                    yield final_content
+                    self._event_bus.emit_message_delta(final_content, is_assistant=True, is_complete=False)
 
-            self._event_bus.emit_message_done(msg_id, accumulated_content, is_assistant=True)
+            self.session.add_message("assistant", final_content)
+            if final_content:
+                self._save_conversation_turn("assistant", final_content)
+            self.features.post_call(self, user_input, final_content)
+
+            self._event_bus.emit_message_done(msg_id, final_content, is_assistant=True)
             self._event_bus.emit_status("idle")
             return
 
@@ -1605,7 +1696,7 @@ if __name__ == '__main__':
         assert g.check("ls -la")[0]
         assert len(g.attested_rules()) >= 7, g.attested_rules()
 
-        # Runtime wiring: system head, derived temperature, guard on shell calls.
+        # Runtime wiring: identity feature, derived temperature, guard on shell calls.
         rt = AgentRuntime(
             AgentConfig(
                 model="m",
@@ -1618,8 +1709,11 @@ if __name__ == '__main__':
         assert pb is not None and pb.source == "deployed:default", (
             pb.source if pb else None
         )
-        head = rt.session.context[0]
-        assert head["role"] == "system" and head["content"].startswith("# APRIL")
+        request_systems = [
+            m for m in rt._build_request_messages("hello") if m["role"] == "system"
+        ]
+        assert request_systems and request_systems[0]["content"].startswith("# APRIL")
+        assert not rt.session.context, "persona identity must not be stored in session.context"
         assert rt.config.temperature == pb.temperature, "derive() must own sampling"
         assert rt.config.temperature != 0.7, "the persona temperature overrode the default"
         res = rt._process_tool_calls(
