@@ -1,4 +1,4 @@
-# APRIL TUI Improvements - Changelog
+# APRIL Changelog
 
 ## Version 1.1 - Memory Correctness & Subagent Concurrency
 
@@ -35,6 +35,30 @@ Targets the memory and subagent paths: extraction cost stops growing with histor
 ### Notes
 - `AgentRuntime._extract_and_store_memories()` already drove extraction from the database's `processed` message flags; that live path is unchanged.
 - Entry points (`cli/`, `main.py`, `launcher.py`) are untouched; all changes are backward-compatible in signatures.
+
+## Development history — Harness² phases (2026-10-31 → 2026-11-04)
+
+The engine work between Version 1.0 and Version 1.1 landed as eight phases, each
+with an offline acceptance gate. These previous versions are recorded here before
+today's close-out; today's own work is the Revision 1 report in
+`docs/Reports/revision-1-progress.md` and is deliberately **not** given a new
+version entry.
+
+| Phase | Landed | Commit | Delivered |
+|---|---|---|---|
+| P0 | 2026-10-31 | `c8ff84b` | Harness² engine repaired and tracked: one driver from `run_task` to `adapter.execute()`, ledger R/P identity, run markers, dry executor |
+| P1 | 2026-10-31 | `1143293` | ZCode substrate: surface spec, validation gates, process-boundary adapter, authored mini-tasks |
+| P2 | 2026-11-01 | `eacd637` | OCEAN personality kernel as a constraint layer; profiles are data |
+| P3 | 2026-11-02 | `304438a` | PSY, the third learnable dimension; R=5k/P=4k with exactness kept |
+| P4 | 2026-11-03 | `071365b` | Scale-out contract: a third profile is one JSON file, zero code |
+| P5 | 2026-11-03 | `61ed7b1` | ADE deploy/boot/guard; live acceptance `39c8955` |
+| P6 | 2026-11-04 | `4e4ba4c` | Facet grain: the 30-facet vector is a legal second profile shape |
+| P7-1…P7-6 | 2026-11-04 | `c83238e` … `d374115` | Facet directives + cap, TS mirror, inert backfill, seed parameter, zcode c1/c2 boot, headless view contracts |
+
+P7-7…P7-9 closed on 2026-11-07 — committed facet profile, harness2 re-sync with
+the free live leg, and working-tree hygiene — and are recorded in
+`docs/spec/phase-plans.md` and the Revision 1 report rather than as a new
+changelog version.
 
 ## Version 1.0 - Event Bus & IPC Architecture
 

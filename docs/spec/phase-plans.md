@@ -699,6 +699,36 @@ runtime data). GLM remains config-only/deferred until a spend decision changes t
 plan. `python3 -m core.agent` green at 31 ok; `git -C ZCode status --porcelain`
 empty.
 
+### P7-9 — Working-tree hygiene (landed 2026-11-04)
+
+Decision-only item: the uncommitted tree was split into a feature stream and a
+hygiene commit, with each path decided explicitly and staged by name (never `-A`).
+
+**Feature stream (commit `47d2426`).** The in-flight memory/subagent/TUI/API/web
+work was coherent and green (55 tests), so it landed as one `Version 1.1` commit:
+incremental extraction + content-hash dedup (`core/database.py`,
+`core/memory_extractor.py`), pooled subagent dispatch (`core/subagent.py`), the
+FastAPI surface and browser service (`core/api.py`, `core/browser_service.py`),
+the TUI harness widget, `scripts/dev.py`, `web/` source (34 files; node_modules
+and dist ignored), `profile_agent.py`, the new tests, `CHANGELOG.md` and
+`.env.example`. The pyproject rewrite landed with its console script corrected
+to the real entry point (`main:main`, root modules declared as `py-modules`) —
+the prior `april.cli.run:main` target did not exist.
+
+**Hygiene commit.** `.gitignore` gained the rules the tree was already relying
+on: `web/node_modules/`, `web/dist/`, `ZCode/`, `harness2/`, plus `data/*.db*`
+(the memory DB is state, not repo content) and `.agents/` + `skills-lock.json`
+(installed local agent tooling). `data/april_memory.db` and its `-shm`/`-wal`
+companions were removed from the index but left on disk (`git rm --cached`), so
+memory survives while runtime state stops being versioned. The dead
+`.github/workflows/auto-merge.yml` and the tracked `april_os.egg-info/` build
+artifact were committed as deletions (`*.egg-info/` was already ignored).
+`CLAUDE.md` stays local by convention.
+
+Post-check: `git status --porcelain` is empty apart from committed state; the
+ignore rules are verified with `git check-ignore`; `git -C ZCode status
+--porcelain` empty; offline self-checks stay green at 31 ok.
+
 ---
 
 ## Superseded documents (removed 2026-10-31, preserved in git history)
