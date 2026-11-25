@@ -93,11 +93,12 @@ tail -f logs/april_backend.log
 
 | File | Purpose |
 |------|---------|
-| `main.py` | Entry point |
-| `core/backend_logger.py` | Backend logging |
-| `core/textual_tui.py` | UI interface |
-| `core/agent.py` | LLM integration |
-| `docs/COMPLETE-IMPLEMENTATION.md` | Full documentation |
+| `main.py` | Entry point (console script: `april`) |
+| `april/app.py` | Composition root |
+| `april/runtime/agent.py` | The composer (turn sequence) |
+| `april/learning/` | Recursive engine + targets |
+| `april/tools/` | MCP, skills, hooks, plugins, subagents |
+| `april/api/app.py` | FastAPI front door |
 
 ---
 

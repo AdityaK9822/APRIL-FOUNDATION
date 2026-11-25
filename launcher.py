@@ -62,6 +62,8 @@ class TerminalLauncher:
     
     def spawn_logger_via_socket(self) -> Optional[str]:
         """Spawn logger in separate terminal via socket."""
+        # The new TUI has no separate log tab; the bus file sink covers it.
+        return None
         # Create socket file
         self._socket_path = os.path.join(
             tempfile.gettempdir(),
@@ -165,7 +167,7 @@ async def run_launcher(
     try:
         if no_spawn:
             os.environ['APRIL_LOG_LEVEL'] = log_level
-            from core.textual_tui import main as tui_main
+            from april.cli.main import main as tui_main
             tui_main()
             return 0
         
@@ -173,7 +175,7 @@ async def run_launcher(
             # Run logger in current terminal
             print("Starting APRIL in single pane mode...")
             os.environ['APRIL_TUI_SHOW_LOGS'] = 'true'
-            from core.textual_tui import main as tui_main
+            from april.cli.main import main as tui_main
             tui_main()
             return 0
         
@@ -186,7 +188,7 @@ async def run_launcher(
         
         os.environ['APRIL_LOG_LEVEL'] = log_level
         
-        from core.textual_tui import main as tui_main
+        from april.cli.main import main as tui_main
         launcher._tui_process = subprocess.Popen(
             [sys.executable, 'main.py', '--log-level', log_level],
             start_new_session=True

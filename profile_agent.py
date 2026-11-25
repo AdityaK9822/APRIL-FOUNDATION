@@ -82,12 +82,12 @@ def print_section(title: str) -> None:
 def main() -> int:
     args = parse_args()
 
-    # Imported inside main so --help works without importing the full core
-    from core.config import AgentConfig
-    from core.agent import AgentRuntime
+    # Imported inside main so --help works without importing the full stack
+    from april.app import build
+    from april.config import Settings
 
-    config = AgentConfig.from_env()
-    runtime = AgentRuntime(config)
+    config = Settings.from_env()
+    runtime = build(config)
 
     print(f"Profiling {args.runs} run(s) of the agent loop")
     print(f"  model : {config.model}")
@@ -99,7 +99,7 @@ def main() -> int:
     failure = None
     try:
         for i in range(args.runs):
-            response = runtime.run(args.prompt)
+            response = runtime.respond(args.prompt)
             print(f"  run {i + 1}/{args.runs}: responded with {len(response)} chars")
     except Exception as exc:  # keep the profile even on failure; diagnose below
         failure = exc
@@ -124,9 +124,9 @@ def main() -> int:
     pstats.Stats(profiler, stream=text).sort_stats("cumulative").print_stats(25)
     print(text.getvalue())
 
-    print_section("Top APRIL functions by cumulative time (core/, tools/)")
+    print_section("Top APRIL functions by cumulative time (april/, tools/)")
     agent_code = io.StringIO()
-    pstats.Stats(profiler, stream=agent_code).sort_stats("cumulative").print_stats("core|tools", 20)
+    pstats.Stats(profiler, stream=agent_code).sort_stats("cumulative").print_stats("april|tools", 20)
     print(agent_code.getvalue())
 
     print_section("How to read this")

@@ -380,34 +380,25 @@ like `api_key=...` or `token=...` are replaced with `***REDACTED***`.
 ## Project Structure
 
 ```
-Open_INT/
-├── main.py              # Entry point with launcher
-├── launcher.py          # Spawns TUI + logger tabs
-├── core/
-│   ├── __init__.py      # Module exports
-│   ├── agent.py         # Core agent runtime
-│   ├── events.py        # Event bus and event types
-│   ├── ipc_server.py    # IPC server for logger
-│   ├── ipc_logger.py    # Logger subprocess
-│   ├── textual_tui.py   # Main Textual app
-│   ├── config.py        # Configuration
-│   ├── session.py       # Session management
-│   ├── database.py      # SQLite memory DB
-│   ├── logger.py        # Structured logging
-│   ├── backend_logger.py # Backend logger bridge
-│   └── widgets/         # Textual widgets
-│       ├── status.py
-│       ├── messages.py
-│       ├── input.py
-│       ├── logs.py
-│       └── stats.py
-├── tools/
-│   ├── __init__.py
-│   └── shell.py
+APRIL_AGENT/
+├── main.py              # Entry point (console script: april)
+├── launcher.py          # Terminal launcher
+├── april/
+│   ├── app.py           # Composition root
+│   ├── runtime/         # The composer (turn sequence)
+│   ├── llm/             # Model seam
+│   ├── learning/        # Recursive engine, targets, native proposer
+│   ├── persona/         # OCEAN kernel, profiles, guards
+│   ├── memory/          # One store, extraction, patterns
+│   ├── tools/           # MCP, skills, hooks, plugins, subagents, builtins
+│   ├── events/          # One bus and logger
+│   ├── body/            # ESP32 telemetry
+│   ├── api/             # FastAPI front door
+│   ├── cli/             # Textual TUI
+│   └── config/          # Settings
 └── tests/
-    ├── test_core.py
-    ├── test_memory.py
-    └── test_tui.py
+    ├── test_april_api.py
+    └── test_april_cli.py
 ```
 
 ---
@@ -425,11 +416,11 @@ Open_INT/
 ## Testing
 
 ```bash
-# Run widget tests
-python test_textual_tui.py
+# The offline self-check: no model, no network, no device
+python3 -m april
 
-# Run core tests (requires pytest)
-python -m pytest tests/ -v
+# The front-door tests (API + TUI)
+.venv/bin/pytest tests/ -q
 ```
 
 ---
