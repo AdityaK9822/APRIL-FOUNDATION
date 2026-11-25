@@ -24,7 +24,7 @@ dev = ["ruff>=0.9", "pytest>=8"]
 april = "april.cli.main:main"
 
 [tool.setuptools]
-py-modules = ["main", "launcher", "profile_agent"]
+py-modules = []
 
 [tool.setuptools.packages.find]
 include = ["april*"]

@@ -20,7 +20,7 @@ def main() -> int:
     env = os.environ.copy()
     env.setdefault("APRIL_API_PORT", "8000")
     backend = subprocess.Popen(
-        [str(BACKEND), "-m", "april", "--api"],
+        [str(BACKEND), "-m", "april.cli.main", "--api"],
         cwd=str(ROOT),
         env=env,
     )

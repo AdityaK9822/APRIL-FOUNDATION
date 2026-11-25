@@ -8,6 +8,9 @@
 > `python3 -m april` is the offline self-check; `pytest tests` covers the API and TUI.
 > The `web/` frontend was removed on 2026-11-25 (source backup taken); it will be
 > rebuilt as an Electron app, and `scripts/dev.py` now runs only the backend.
+> Entry points are `python3 -m april.cli.main` (TUI) and
+> `python3 -m april.cli.main --api` (API), or the `april` console script after
+> `pip install -e .`; `python3 -m april` remains the self-check.
 > Intentional retirements: ADE deploy/boot web screens, browser automation, the web
 > harness runner, the IPC log tab, the curses TUI, the c1–c8 component editors (collapsed
 > into the workflow surface), and the ZCode substrate/subprocess channels.

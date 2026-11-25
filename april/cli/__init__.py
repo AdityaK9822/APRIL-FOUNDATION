@@ -1,3 +1,1 @@
-from .main import main
-
-__all__ = ["main"]
+"""APRIL's command-line front door."""
